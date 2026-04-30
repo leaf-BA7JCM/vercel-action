@@ -30,7 +30,7 @@ function createConfig(overrides: Partial<ActionConfig> = {}): ActionConfig {
     githubComment: false,
     workingDirectory: '',
     vercelToken: 'test-token',
-    vercelArgs: '',
+    deployment: { kind: 'cli', vercelArgs: '' },
     vercelOrgId: '',
     vercelProjectId: '',
     vercelScope: '',
@@ -497,19 +497,43 @@ describe('createVercelClient', () => {
     vi.clearAllMocks()
   })
 
-  it('returns VercelCliClient when vercelArgs is non-empty', () => {
-    const config = createConfig({ vercelArgs: '--prod' })
+  // Routing matrix (spec AC-1):
+  // deployment.kind = 'cli', vercelArgs=""    → VercelCliClient
+  // deployment.kind = 'cli', vercelArgs="..." → VercelCliClient
+  // deployment.kind = 'experimental-api'      → VercelApiClient (with warning)
+  // ('experimental-api', vercel-args="...")   → mutual-exclusion error
+  //   (enforced upstream in getActionConfig — the discriminated union makes
+  //    this state unrepresentable here)
+
+  it('returns VercelCliClient by default (deployment.kind = "cli", vercelArgs="")', () => {
+    const config = createConfig({ deployment: { kind: 'cli', vercelArgs: '' } })
     const client = createVercelClient(config)
 
     expect(client).toBeInstanceOf(VercelCliClient)
-    expect(core.info).toHaveBeenCalledWith('Using CLI-based deployment (vercel-args provided)')
+    expect(core.info).toHaveBeenCalledWith('Using CLI-based deployment')
+    expect(core.warning).not.toHaveBeenCalled()
   })
 
-  it('returns VercelApiClient when vercelArgs is empty', () => {
-    const config = createConfig({ vercelArgs: '' })
+  it('returns VercelCliClient when vercelArgs is provided', () => {
+    const config = createConfig({ deployment: { kind: 'cli', vercelArgs: '--prod' } })
+    const client = createVercelClient(config)
+
+    expect(client).toBeInstanceOf(VercelCliClient)
+    expect(core.info).toHaveBeenCalledWith('Using CLI-based deployment')
+    expect(core.warning).not.toHaveBeenCalled()
+  })
+
+  it('returns VercelApiClient when deployment.kind = "experimental-api" and emits a warning', () => {
+    const config = createConfig({ deployment: { kind: 'experimental-api' } })
     const client = createVercelClient(config)
 
     expect(client).toBeInstanceOf(VercelApiClient)
-    expect(core.info).toHaveBeenCalledWith('Using API-based deployment')
+    expect(core.warning).toHaveBeenCalledTimes(1)
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('experimental'),
+    )
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('@vercel/client'),
+    )
   })
 })

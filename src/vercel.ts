@@ -7,12 +7,22 @@ import { VercelCliClient } from './vercel-cli'
 const ALIAS_RETRY_COUNT = 2
 
 export function createVercelClient(config: ActionConfig): VercelClient {
-  if (config.vercelArgs) {
-    core.info('Using CLI-based deployment (vercel-args provided)')
-    return new VercelCliClient(config)
+  switch (config.deployment.kind) {
+    case 'experimental-api':
+      core.warning(
+        'Using experimental API-based deployment via @vercel/client. '
+        + 'This is an internal Vercel package without semver guarantees and may break across updates. '
+        + 'Set "experimental-api: false" or remove the input to use the stable CLI-based deployment.',
+      )
+      return new VercelApiClient(config)
+    case 'cli':
+      core.info('Using CLI-based deployment')
+      return new VercelCliClient(config)
+    default: {
+      const exhaustive: never = config.deployment
+      throw new Error(`Unhandled deployment mode: ${JSON.stringify(exhaustive)}`)
+    }
   }
-  core.info('Using API-based deployment')
-  return new VercelApiClient(config)
 }
 
 export async function vercelDeploy(

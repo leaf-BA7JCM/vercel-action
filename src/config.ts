@@ -1,4 +1,4 @@
-import type { ActionConfig, OctokitClient, PullRequestPayload } from './types'
+import type { ActionConfig, DeploymentMode, OctokitClient, PullRequestPayload } from './types'
 import path from 'node:path'
 import * as core from '@actions/core'
 import * as github from '@actions/github'
@@ -71,11 +71,30 @@ function parseAliasDomains(): string[] {
     })
 }
 
-export function resolveDeploymentEnvironment(explicitEnv: string, vercelArgs: string): string {
+export function resolveDeploymentEnvironment(
+  explicitEnv: string,
+  deployment: DeploymentMode,
+  target: 'production' | 'preview',
+): string {
   if (explicitEnv) {
     return explicitEnv
   }
-  return /(?:^|\s)--prod(?:uction)?(?:\s|$)/.test(vercelArgs) ? 'production' : 'preview'
+  if (deployment.kind === 'experimental-api') {
+    return target === 'production' ? 'production' : 'preview'
+  }
+  return /(?:^|\s)--prod(?:uction)?(?:\s|$)/.test(deployment.vercelArgs) ? 'production' : 'preview'
+}
+
+function parseDeploymentMode(rawVercelArgs: string, experimentalApi: boolean): DeploymentMode {
+  const trimmed = rawVercelArgs.trim()
+  if (experimentalApi && trimmed) {
+    throw new Error(
+      'The "experimental-api" and "vercel-args" inputs are mutually exclusive. '
+      + 'Either remove "vercel-args" to use the experimental API mode, '
+      + 'or set "experimental-api: false" (or remove it) to use CLI mode with vercel-args.',
+    )
+  }
+  return experimentalApi ? { kind: 'experimental-api' } : { kind: 'cli', vercelArgs: trimmed }
 }
 
 export function getActionConfig(): ActionConfig {
@@ -83,6 +102,10 @@ export function getActionConfig(): ActionConfig {
   core.setSecret(vercelToken)
 
   const vercelArgs = core.getInput('vercel-args')
+  const experimentalApi = core.getInput('experimental-api') === 'true'
+  const deployment = parseDeploymentMode(vercelArgs, experimentalApi)
+  const target = parseTarget(core.getInput('target'))
+
   const githubDeploymentEnvInput = core.getInput('github-deployment-environment')
 
   const prebuilt = core.getInput('prebuilt') === 'true'
@@ -108,10 +131,10 @@ export function getActionConfig(): ActionConfig {
     githubToken: core.getInput('github-token'),
     githubComment: getGithubCommentInput(core.getInput('github-comment')),
     githubDeployment: core.getInput('github-deployment') === 'true',
-    githubDeploymentEnvironment: resolveDeploymentEnvironment(githubDeploymentEnvInput, vercelArgs),
+    githubDeploymentEnvironment: resolveDeploymentEnvironment(githubDeploymentEnvInput, deployment, target),
     workingDirectory: parseWorkingDirectory(core.getInput('working-directory')),
     vercelToken,
-    vercelArgs,
+    deployment,
     vercelOrgId: core.getInput('vercel-org-id'),
     vercelProjectId: core.getInput('vercel-project-id'),
     vercelScope: core.getInput('scope'),
@@ -119,7 +142,7 @@ export function getActionConfig(): ActionConfig {
     vercelBin: getVercelBin(),
     aliasDomains: parseAliasDomains(),
     // API-based deployment inputs
-    target: parseTarget(core.getInput('target')),
+    target,
     prebuilt,
     vercelBuild,
     vercelOutputDir: core.getInput('vercel-output-dir'),

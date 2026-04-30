@@ -54,7 +54,7 @@ function createConfig(overrides: Record<string, unknown> = {}) {
     githubComment: true as boolean | string,
     workingDirectory: '',
     vercelToken: 'v-token',
-    vercelArgs: '',
+    deployment: { kind: 'cli', vercelArgs: '' },
     vercelOrgId: '',
     vercelProjectId: '',
     vercelScope: '',
